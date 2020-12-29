@@ -27,6 +27,18 @@ TOKEN_REQUEST = \
 	"system_version=CusHY#000b0001#iI0rZ0Q2dg3Evhd-8GoYmp-KTE8malKe0GOJgXa-XG8=&" \
 	"mac=i9ZnhrO4xn6VxB1b_89AAg"
 
+EDGE_TOKEN_REQUEST = \
+	"POST /v6/edge_token HTTP/1.1\r\n" \
+	"Host: 127.0.0.1:12345\r\n" \
+	"User-Agent: libcurl (nnDauth; 16f4553f-9eee-4e39-9b61-59bc7c99b7c8; SDK 11.4.0.0)\r\n" \
+	"Accept: */*\r\n" \
+	"X-Nintendo-PowerState: FA\r\n" \
+	"Content-Length: 211\r\n" \
+	"Content-Type: application/x-www-form-urlencoded\r\n\r\n" \
+	"challenge=vaNgVZZH7gUse0y3t8Cksuln-TAVtvBmcD-ow59qp0E=&" \
+	"client_id=8f849b5d34778d8e&ist=false&key_generation=11&" \
+	"system_version=CusHY#000b0001#iI0rZ0Q2dg3Evhd-8GoYmp-KTE8malKe0GOJgXa-XG8=&" \
+	"mac=i9ZnhrO4xn6VxB1b_89AAg"
 
 @pytest.mark.anyio
 async def test_dauth():
@@ -39,13 +51,22 @@ async def test_dauth():
 				"data": "dlL7ZBNSLmYo1hUlKYZiUA=="
 			}
 			return response
-		else:
+		elif request.path == "/v6/device_auth_token":
 			assert request.encode().decode() == TOKEN_REQUEST
 			response = http.HTTPResponse(200)
 			response.json = {
 				"device_auth_token": "device token"
 			}
 			return response
+		elif request.path == "/v6/edge_token":
+			assert request.encode().decode() == EDGE_TOKEN_REQUEST
+			response = http.HTTPResponse(200)
+			response.json = {
+				"dtoken": "edge token"
+			}
+			return response
+		else:
+			raise Exception()
 	
 	async with http.serve(handler, "127.0.0.1", 12345):
 		keys = switch.KeySet()
@@ -57,3 +78,7 @@ async def test_dauth():
 		response = await client.device_token(client.BAAS)
 		token = response["device_auth_token"]
 		assert token == "device token"
+
+		response = await client.edge_token(client.BAAS)
+		token = response["dtoken"]
+		assert token == "edge token"

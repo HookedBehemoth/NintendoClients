@@ -78,28 +78,28 @@ class DAuthClient:
 	BEACH = 0x93AF0ACB26258DE9
 	DRAGONS = 0xD5B6CAC2C1514C56
 	PREPO = 0xDF51C436BC01C437
-	
+
 	def __init__(self, keyset):
 		self.keyset = keyset
-		
+
 		ca = tls.TLSCertificate.load(CA, tls.TYPE_DER)
 		self.context = tls.TLSContext()
 		self.context.set_authority(ca)
-		
+
 		self.region = 1
-		
+
 		self.url = "dauth-lp1.ndas.srv.nintendo.net"
 		self.user_agent = USER_AGENT[LATEST_VERSION]
 		self.system_digest = SYSTEM_VERSION_DIGEST[LATEST_VERSION]
 		self.key_generation = KEY_GENERATION[LATEST_VERSION]
-		
+
 		self.power_state = "FA"
-		
+
 	def set_certificate(self, cert, key):
 		self.context.set_certificate(cert, key)
 	def set_context(self, context):
 		self.context = context
-	
+
 	def set_platform_region(self, region): self.region = region
 
 	def set_url(self, url): self.url = url
@@ -111,7 +111,7 @@ class DAuthClient:
 		self.user_agent = USER_AGENT[version]
 		self.system_digest = SYSTEM_VERSION_DIGEST[version]
 		self.key_generation = KEY_GENERATION[version]
-	
+
 	def set_power_state(self, state): self.power_state = state
 	def set_key_generation(self, keygen): self.key_generation = keygen
 		
@@ -122,7 +122,7 @@ class DAuthClient:
 		req.headers["X-Nintendo-PowerState"] = self.power_state
 		req.headers["Content-Length"] = 0
 		req.headers["Content-Type"] = "application/x-www-form-urlencoded"
-		
+
 		response = await http.request(self.url, req, self.context)
 		if response.error():
 			if response.json:
@@ -135,20 +135,20 @@ class DAuthClient:
 				logger.error("DAuth request returned status code %i", response.status_code)
 				raise DAuthError(response.status_code)
 		return response
-		
+
 	async def challenge(self):
 		req = http.HTTPRequest.post("/v6/challenge")
 		req.plainform["key_generation"] = self.key_generation
-		
+
 		response = await self.request(req)
 		return response.json
-		
-	async def device_token(self, client_id):
+
+	async def token_request(self, path, client_id):
 		challenge = await self.challenge()
-		
+
 		data = switch.b64decode(challenge["data"])
-		
-		req = http.HTTPRequest.post("/v6/device_auth_token")
+
+		req = http.HTTPRequest.post(path)
 		req.plainform["challenge"] = challenge["challenge"]
 		req.plainform["client_id"] = "%016x" %client_id
 		if self.region == 2:
@@ -157,30 +157,39 @@ class DAuthClient:
 			req.plainform["ist"] = "false"
 		req.plainform["key_generation"] = self.key_generation
 		req.plainform["system_version"] = self.system_digest
-		
+
 		string = http.formencode(req.plainform, False)
 		req.plainform["mac"] = self.calculate_mac(string, data)
-		
-		response = await self.request(req)
+
+		return await self.request(req)
+
+	async def device_token(self, client_id):
+		response = await self.token_request("/v6/device_auth_token", client_id)
+
 		return response.json
-		
+
+	async def edge_token(self, client_id):
+		response = await self.token_request("/v6/edge_token", client_id)
+
+		return response.json
+
 	def get_master_key(self):
 		keygen = self.key_generation
 		keyname = "master_key_%02x" %(keygen - 1)
 		return self.keyset[keyname]
-		
+
 	def decrypt_key(self, key, kek):
 		aes = AES.new(kek, AES.MODE_ECB)
 		return aes.decrypt(key)
-		
+
 	def calculate_mac(self, form, data):
 		kek_source = self.keyset["aes_kek_generation_source"]
 		master_key = self.get_master_key()
-		
+
 		key = self.decrypt_key(kek_source, master_key)
 		key = self.decrypt_key(DAUTH_SOURCE, key)
 		key = self.decrypt_key(data, key)
-		
+
 		mac = CMAC.new(key, ciphermod=AES)
 		mac.update(form.encode())
 		return switch.b64encode(mac.digest())
